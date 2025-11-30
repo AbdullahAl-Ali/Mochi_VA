@@ -109,7 +109,7 @@ def play_music():
 
 
 def gemini_model_response(user_input):
-    GEMINI_API_KEY = "AIzaSyC4lzHLuphL_qaJkZD8D1WuKn1i3fI3BV4"
+    GEMINI_API_KEY = "----------------Your API Key Here----------------"
     genai.configure(api_key=GEMINI_API_KEY) 
     model = genai.GenerativeModel("gemini-2.5-flash") 
     prompt = f"""
