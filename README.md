@@ -64,7 +64,7 @@ This project uses speech recognition and text-to-speech (TTS) to provide a hands
 **Abdullah Al Ali**
 
 - Inspired by A Fluffy cat named mochi🐈 !!
-- But This project is created to prectice on my AI and python learning...
+- But This project is created to practice on AI and python learning...
 
 
 ### 📜 License
