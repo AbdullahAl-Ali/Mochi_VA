@@ -7,10 +7,17 @@ import wikipedia
 import webbrowser 
 import random
 import subprocess
-import google.generativeai as genai 
+import google.generativeai as genai
+import requests
+import ast
+import operator as op
+from geopy.geocoders import Nominatim
+from dotenv import load_dotenv
+import threading
+import time
 
 
-# Logging configuration 
+# Logging configuration
 LOG_DIR = "logs"
 LOG_FILE_NAME = "application.log"
 
@@ -147,8 +154,168 @@ def gemini_model_response(user_input):
     return result
 
 
+def set_alarm(alarm_time):
+    """Sets an alarm for a given time."""
+    def alarm():
+        try:
+            alarm_hour, alarm_minute = map(int, alarm_time.split(':'))
+            now = datetime.datetime.now()
+            alarm_datetime = now.replace(hour=alarm_hour, minute=alarm_minute, second=0, microsecond=0)
+
+            if now > alarm_datetime:
+                alarm_datetime += datetime.timedelta(days=1)
+
+            time_to_wait = (alarm_datetime - now).total_seconds()
+
+            if time_to_wait > 0:
+                time.sleep(time_to_wait)
+                speak("Boss, it's time!")
+        except ValueError:
+            speak("Invalid time format. Please use HH:MM.")
+            logging.error(f"Invalid time format for alarm: {alarm_time}")
+        except Exception as e:
+            logging.error(f"Error in alarm thread: {e}")
+
+    try:
+        alarm_thread = threading.Thread(target=alarm)
+        alarm_thread.start()
+        speak(f"Alarm set for {alarm_time}")
+        logging.info(f"Alarm set for {alarm_time}")
+    except Exception as e:
+        logging.error(f"Error setting alarm: {e}")
+        speak("Sorry, I couldn't set the alarm.")
 
 
+def add_todo(task):
+    """Adds a task to the to-do list."""
+    with open("todo.txt", "a") as f:
+        f.write(f"{task}\n")
+    speak(f"Added '{task}' to your to-do list.")
+    logging.info(f"Added to-do: {task}")
+
+
+def remove_todo(task):
+    """Removes a task from the to-do list."""
+    try:
+        with open("todo.txt", "r") as f:
+            lines = f.readlines()
+        with open("todo.txt", "w") as f:
+            removed = False
+            for line in lines:
+                if task.strip().lower() != line.strip().lower():
+                    f.write(line)
+                else:
+                    removed = True
+            if removed:
+                speak(f"Removed '{task}' from your to-do list.")
+                logging.info(f"Removed to-do: {task}")
+            else:
+                speak(f"Could not find '{task}' in your to-do list.")
+    except FileNotFoundError:
+        speak("You don't have a to-do list yet.")
+
+
+def list_todos():
+    """Lists all tasks in the to-do list."""
+    try:
+        with open("todo.txt", "r") as f:
+            tasks = f.readlines()
+        if tasks:
+            speak("Here are your to-do list items:")
+            for i, task in enumerate(tasks):
+                speak(f"{i + 1}. {task.strip()}")
+        else:
+            speak("Your to-do list is empty.")
+    except FileNotFoundError:
+        speak("You don't have a to-do list yet.")
+
+
+# supported operators
+operators = {
+    ast.Add: op.add, ast.Sub: op.sub, ast.Mult: op.mul,
+    ast.Div: op.truediv, ast.Pow: op.pow, ast.BitXor: op.xor,
+    ast.USub: op.neg
+}
+
+def eval_expr(expr):
+    """
+    Safely evaluates a mathematical expression string.
+    """
+    return eval_(ast.parse(expr, mode='eval').body)
+
+def eval_(node):
+    if isinstance(node, ast.Num):  # <number>
+        return node.n
+    elif isinstance(node, ast.BinOp):  # <left> <operator> <right>
+        return operators[type(node.op)](eval_(node.left), eval_(node.right))
+    elif isinstance(node, ast.UnaryOp):  # <operator> <operand> e.g., -1
+        return operators[type(node.op)](eval_(node.operand))
+    else:
+        raise TypeError(node)
+
+def calculate(expression):
+    """Calculates the result of a simple arithmetic expression."""
+    try:
+        result = eval_expr(expression)
+        speak(f"The result is {result}")
+        logging.info(f"Calculated '{expression}' = {result}")
+    except (TypeError, SyntaxError, KeyError) as e:
+        logging.error(f"Invalid expression: {expression} - {e}")
+        speak("Sorry, I couldn't calculate that. Please provide a valid mathematical expression.")
+    except Exception as e:
+        logging.error(f"Error calculating '{expression}': {e}")
+        speak("An unexpected error occurred during calculation.")
+
+
+def get_news(country="us"):
+    """Fetches and speaks the latest news headlines for a given country."""
+    news_api_key = os.environ.get("NEWS_API_KEY")
+    if not news_api_key:
+        speak("Sorry, the NewsAPI key is not configured. Please set the NEWS_API_KEY environment variable.")
+        return
+
+    try:
+        url = f"https://newsapi.org/v2/top-headlines?country={country}&apiKey={news_api_key}"
+        response = requests.get(url)
+        news_data = response.json()
+        if news_data.get("articles"):
+            speak(f"Here are the latest news headlines from {country}:")
+            for article in news_data["articles"][:5]:
+                speak(article["title"])
+            logging.info(f"Fetched and spoke news headlines for {country}.")
+        else:
+            speak("Sorry, I couldn't fetch the news at the moment.")
+    except Exception as e:
+        logging.error(f"Error fetching news: {e}")
+        speak("Sorry, I encountered an error while fetching the news.")
+
+
+def get_weather(city):
+    """Fetches and speaks the weather for a given city."""
+    try:
+        geolocator = Nominatim(user_agent="mochi_va")
+        location = geolocator.geocode(city)
+        if location:
+            lat, lon = location.latitude, location.longitude
+            url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,wind_speed_10m"
+            response = requests.get(url)
+            weather_data = response.json()
+            if "current" in weather_data:
+                temp = weather_data["current"]["temperature_2m"]
+                wind_speed = weather_data["current"]["wind_speed_10m"]
+                weather_report = f"The current temperature in {city} is {temp} degrees Celsius with a wind speed of {wind_speed} kilometers per hour."
+                speak(weather_report)
+                logging.info(f"Weather report for {city}: {weather_report}")
+            else:
+                speak("Sorry, I couldn't fetch the weather for that location.")
+        else:
+            speak("Sorry, I couldn't find that city.")
+    except Exception as e:
+        logging.error(f"Error fetching weather: {e}")
+        speak("Sorry, I encountered an error while fetching the weather.")
+
+
+load_dotenv()
 greeting()
 
 while True:
@@ -259,6 +426,45 @@ while True:
     elif "play music" in query or "music" in query or "open music" in query or "open music folder" in query:
         play_music()
 
+
+    elif "weather" in query:
+        speak("Which city's weather would you like to know?")
+        city = takeCommand().lower()
+        if city != "none":
+            get_weather(city)
+
+    elif "news" in query or "headlines" in query:
+        speak("Which country's news would you like to hear?")
+        country = takeCommand().lower()
+        if country != "none":
+            get_news(country)
+
+    elif "calculate" in query:
+        speak("What would you like to calculate?")
+        expression = takeCommand().lower()
+        if expression != "none":
+            calculate(expression)
+
+    elif "add to-do" in query or "add a to-do" in query:
+        speak("What would you like to add to your to-do list?")
+        task = takeCommand().lower()
+        if task != "none":
+            add_todo(task)
+
+    elif "remove to-do" in query or "remove a to-do" in query:
+        speak("What would you like to remove from your to-do list?")
+        task = takeCommand().lower()
+        if task != "none":
+            remove_todo(task)
+
+    elif "list to-dos" in query or "show to-dos" in query:
+        list_todos()
+
+    elif "set alarm" in query:
+        speak("What time should I set the alarm for? For example, say 22:30")
+        alarm_time = takeCommand().lower()
+        if alarm_time != "none":
+            set_alarm(alarm_time)
 
     elif "exit" in query or "exit boss" in query or "exit mochi" in query or "mochi exit" in query:
         speak("Thank you for your time boss. Have a great day ahead!")
